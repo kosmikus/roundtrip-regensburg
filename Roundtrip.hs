@@ -310,3 +310,12 @@ roundtripDuo d x =
 
 testRoundtripDuo :: IO ()
 testRoundtripDuo = smallCheck 4 (roundtripDuo dCommand)
+
+-- Libraries to look at:
+--
+-- https://hackage.haskell.org/package/invertible-syntax
+-- https://hackage.haskell.org/package/roundtrip
+-- https://hackage.haskell.org/package/boomerang
+-- https://hackage.haskell.org/package/JsonGrammar
+--
+-- ... and more
