@@ -70,6 +70,14 @@ roundtripBinary x = B.decode (B.encode x) == x
 instance Monad m => Serial m Direction
 instance Monad m => Serial m Command
 
+testRoundtripReadShow :: IO ()
+testRoundtripReadShow = smallCheck 4 (roundtripReadShow :: Command -> Bool)
+
+testRoundtripBinary :: IO ()
+testRoundtripBinary = smallCheck 4 (roundtripBinary :: Command -> Bool)
+
+-- Parsers and renderers, individually
+
 parseDirection :: P.Parser Direction
 parseDirection =
       North <$ string "n"
@@ -164,21 +172,29 @@ rmap f = Renderer (\ b -> case f b of
                             Nothing -> Nothing
                             Just a  -> Just (id, a))
 
--- Parser corresponding to the North constructor
-
+-- Stacks as nested pairs.
+-- We use '()' to denote the end.
 data a :- b = a :- b
   deriving (Eq, Show)
 
 infixr 5 :-
 
+pop :: (a :- b) -> a
+pop (a :- _b) = a
+
+-- Parser corresponding to the North constructor
 pNorth :: Parser s (Direction :- s)
 pNorth = pmap (North :-)
 
+-- Renderer corresponding to the North costructor
 rNorth :: Renderer s (Direction :- s)
 rNorth = rmap (\ (d :- s) -> do North <- return d; return s)
 
+-- Constructor Duos can all be written in terms of dmap
 dmap :: (a -> b) -> (b -> Maybe a) -> Duo a b
 dmap f g = Duo (pmap f) (rmap g)
+
+-- Constructor Duos for Direction and Command
 
 dNorth, dSouth, dWest, dEast :: Duo s (Direction :- s)
 dNorth = dmap (North :-) (\ (d :- s) -> do North <- return d; return s)
@@ -230,7 +246,6 @@ instance Category Renderer where
   id  = ridentity
   (.) = rcombine
 
-
 -- Combined parsers and printers
 
 data Duo a b = Duo (Parser a b) (Renderer a b)
@@ -242,6 +257,8 @@ instance Monoid (Duo a b) where
 instance Category Duo where
   id = Duo id id
   Duo p1 r1 . Duo p2 r2 = Duo (p1 . p2) (r1 . r2)
+
+-- Duos for directions and commands
 
 dDirection :: Duo s (Direction :- s)
 dDirection =
@@ -256,6 +273,14 @@ dCommand =
   <> dLook . dstring "look"
   <> dQuit . dstring "quit"
 
+-- More combinators
+
+dstring :: String -> Duo s s
+dstring []       = id
+dstring (x : xs) = dchar x . dstring xs
+
+-- | Required spaces.
+-- Parses arbitray whitespace, renders as a single space.
 dReqSpace :: Duo s s
 dReqSpace = Duo pspaces (rchar ' ')
 
@@ -265,9 +290,23 @@ pspaces = Parser $ \ input ->
     (c : cs) | isSpace c -> Just (id, dropWhile isSpace cs)
     _                    -> Nothing
 
-pdtest (Duo p r) = ptest p
-rdtest (Duo p r) = rtest r
+pdtest :: Duo a b -> String -> a -> Maybe b
+pdtest (Duo p _r) = ptest p
 
-dstring :: String -> Duo s s
-dstring []       = id
-dstring (x : xs) = dchar x . dstring xs
+rdtest :: Duo a b -> b -> Maybe String
+rdtest (Duo _p r) = rtest r
+
+pdtest1 :: Duo () (a :- ()) -> String -> Maybe a
+pdtest1 d input = pop <$> pdtest d input ()
+
+rdtest1 :: Duo () (a :- ()) -> a -> Maybe String
+rdtest1 d a = rdtest d (a :- ())
+
+roundtripDuo :: (Eq a) => Duo () (a :- ()) -> a -> Bool
+roundtripDuo d x =
+  case rdtest1 d x of
+    Nothing -> False
+    Just y  -> pdtest1 d y == Just x
+
+testRoundtripDuo :: IO ()
+testRoundtripDuo = smallCheck 4 (roundtripDuo dCommand)
